@@ -20,6 +20,8 @@ const TEXT_RIGHT = USC.CARD_X + USC.CARD_W - 16;
 /** The two choose buttons, as drawn and as hit areas. */
 const ASK_BTN = { x: 114, w: 168 };
 const CANCEL_BTN = { x: 290, w: 120 };
+/** The words around what matters on the progress card: "Uploading", the percentage. */
+const QUIET = "#8B9099";
 /** Drop-zone chips (English keys, shown with `t()`). */
 const CHIPS = [N_("PDF"), N_("Images"), N_("Code"), N_("Docs")];
 
@@ -184,16 +186,21 @@ export class UploadCanvas {
     ctx.fillStyle = "#0D0E10";
     ctx.fillRect(USC.CARD_X, USC.CARD_Y, USC.CARD_W, USC.CARD_H);
 
-    // Green glow, fanning up from the bottom edge of the card.
+    // Green glow, fanning up from the bottom edge of the card. Over the drop zone
+    // it is a spot under the text; once the file is in it widens into a low, even
+    // wash along the edge, so the card warms up without a hot spot.
     if (f.greenWash > 0) {
-      const gx = USC.CARD_X + USC.CARD_W / 2;
-      const gy = USC.CARD_Y + USC.CARD_H;
-      const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, USC.CARD_H * 1.5);
-      g.addColorStop(0, `rgba(40,212,130,${f.greenWash * 0.9})`);
-      g.addColorStop(0.55, `rgba(40,212,130,${f.greenWash * 0.3})`);
+      const k = 1 - Math.max(0, Math.min(1, f.zoneAlpha));
+      const peak = f.greenWash * lerp(0.9, 0.4, k);
+      const spread = lerp(1, 1.9, k);
+      ctx.translate(USC.CARD_X + USC.CARD_W / 2, USC.CARD_Y + USC.CARD_H);
+      ctx.scale(spread, 1);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, USC.CARD_H * lerp(1.5, 1.15, k));
+      g.addColorStop(0, `rgba(40,212,130,${peak})`);
+      g.addColorStop(0.55, `rgba(40,212,130,${peak / 3})`);
       g.addColorStop(1, "rgba(40,212,130,0)");
       ctx.fillStyle = g;
-      ctx.fillRect(USC.CARD_X, USC.CARD_Y, USC.CARD_W, USC.CARD_H);
+      ctx.fillRect(-USC.CARD_W, -USC.CARD_H, USC.CARD_W * 2, USC.CARD_H);
     }
     ctx.restore();
 
@@ -266,7 +273,22 @@ export class UploadCanvas {
     // Room up to the percentage (or the check mark) at the bar's right end.
     const uploading = t("Uploading {name}", { name: State.droppedFile?.name ?? t("file") });
     const label = fitted(ctx, uploading, x1 - x0 - 56, 500, 12.5);
-    text(ctx, label.s, x0, by - 30, label.font, "#A9ADB5");
+    // The file is the news: its name reads brighter than the words around it.
+    const [before, after = ""] = t("Uploading {name}", { name: "\u0001" }).split("\u0001");
+    const tail = after && label.s.endsWith(after) ? after : "";
+    const runs: [string, string][] =
+      isRtl() || !label.s.startsWith(before)
+        ? [[label.s, QUIET]]
+        : [
+            [before, QUIET],
+            [label.s.slice(before.length, label.s.length - tail.length), "#D5D7DB"],
+            [tail, QUIET],
+          ];
+    let lx = x0;
+    for (const [run, color] of runs) {
+      text(ctx, run, lx, by - 30, label.font, color);
+      lx += ctx.measureText(run).width;
+    }
 
     if (f.check > 0) {
       ctx.save();
@@ -287,27 +309,28 @@ export class UploadCanvas {
       ctx.stroke();
       ctx.restore();
     } else {
-      text(ctx, `${Math.round(f.progress * 100)} %`, x1, by - 30, `500 12.5px ${FONT}`, "#A9ADB5", "right");
+      text(ctx, `${Math.round(f.progress * 100)} %`, x1, by - 30, `500 12.5px ${FONT}`, QUIET, "right");
     }
 
     // Track.
     if (barLen > 0) {
-      ctx.fillStyle = "rgba(255,255,255,0.08)";
-      rr(ctx, x0, by - 3, barLen, 6, 3);
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      rr(ctx, x0, by - 2, barLen, 4, 2);
       ctx.fill();
     }
 
     // Fill.
     const fx = lerp(x0, x1, f.progress);
     if (fx > x0 + 1) {
-      const flashGreen = `rgb(${Math.round(lerp(52, 110, f.flash))},${Math.round(
-        lerp(211, 231, f.flash),
-      )},${Math.round(lerp(153, 183, f.flash))})`;
+      const flashGreen = `rgb(${Math.round(lerp(110, 167, f.flash))},${Math.round(
+        lerp(231, 243, f.flash),
+      )},${Math.round(lerp(183, 208, f.flash))})`;
+      // A thin line that brightens towards its head, rather than a solid block.
       const g = ctx.createLinearGradient(x0, 0, fx, 0);
-      g.addColorStop(0, "#1FA87A");
+      g.addColorStop(0, "rgba(52,211,153,0.55)");
       g.addColorStop(1, flashGreen);
       ctx.fillStyle = g;
-      rr(ctx, x0, by - 3, fx - x0, 6, 3);
+      rr(ctx, x0, by - 2, fx - x0, 4, 2);
       ctx.fill();
     }
 
@@ -319,11 +342,11 @@ export class UploadCanvas {
       const tl = Math.max(8, Math.min(34, 8 + v * 40));
       const g = ctx.createLinearGradient(fx - tl, 0, fx, 0);
       g.addColorStop(0, "rgba(52,212,153,0)");
-      g.addColorStop(1, "rgba(110,231,183,0.6)");
+      g.addColorStop(1, "rgba(110,231,183,0.35)");
       ctx.save();
       ctx.filter = "blur(3px)";
       ctx.fillStyle = g;
-      rr(ctx, fx - tl, by - 4, tl, 8, 4);
+      rr(ctx, fx - tl, by - 3, tl, 6, 3);
       ctx.fill();
       ctx.restore();
     }
